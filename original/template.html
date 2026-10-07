@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hierarchy Tree</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      height: 100vh; display: flex; flex-direction: column;
+      background: #000; color: #d6d6d6; font-family: monospace; overflow: hidden;
+    }
+    .topbar {
+      height: 56px; border-bottom: 1px solid #1a1a1a;
+      display: flex; align-items: center; padding: 0 16px; background: #050505; flex-shrink: 0;
+    }
+    .title { font-size: 20px; font-weight: bold; color: #ff5f00; margin-right: 18px; }
+    .actions { display: flex; align-items: center; gap: 14px; flex: 1; }
+    .upload-btn {
+      padding: 8px 14px; background: #ff5f00; color: #fff;
+      cursor: pointer; font-size: 14px; display: inline-block; border: none;
+    }
+    .upload-btn:hover { background: #ff7a26; }
+    .stats { margin-left: auto; color: #666; font-size: 14px; }
+    .main { flex: 1; display: flex; min-height: 0; }
+
+    .content { flex: 1; display: flex; flex-direction: column; min-width: 0; background: #000; }
+    .table-wrap { flex: 1; overflow: auto; background: #000; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; border: 1px solid #333; }
+    thead { position: sticky; top: 0; background: #050505; z-index: 10; }
+
+    th { 
+      text-align: left; 
+      padding: 8px 10px; 
+      border: 1px solid #333; 
+      color: #ff5f00; 
+      font-weight: bold; 
+      font-size: 13px; 
+    }
+    
+    tbody tr td { 
+      color: #d6d6d6 !important; 
+    }
+
+    tbody tr.title-row td {
+      color: #00ff95 !important;
+      font-weight: bold;
+    }
+
+    th:nth-child(1), td:nth-child(1) { width: 70px; }
+    th:nth-child(2), td:nth-child(2) { width: 220px; }
+    th:nth-child(3), td:nth-child(3) { width: 160px; }
+    th:nth-child(4), td:nth-child(4) { width: auto; }
+
+    td { padding: 6px 10px; border: 1px solid #222; vertical-align: top; font-size: 14px; line-height: 1.45; }
+    td:nth-child(1) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    td:nth-child(2) { word-break: break-all; }
+    td:nth-child(3) { word-break: break-all; }
+    td:nth-child(4) { overflow: hidden; }
+    tbody tr:hover { background: #111; }
+    
+    .highlighted { background: #2a0f00 !important; }
+    .collapsed-child { display: none !important; }
+    
+    .bottom { height: 44px; border-top: 1px solid #111; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; background: #050505; flex-shrink: 0; }
+    .cmd-wrap { display: flex; align-items: center; flex: 1; }
+    .prompt { color: #ff5f00; margin-right: 10px; font-size: 18px; }
+    .cmd { flex: 1; height: 34px; background: #000; border: none; outline: none; color: #ff5f00; font-family: monospace; font-size: 15px; }
+    #cmdOutput { 
+      font-size: 13px; font-weight: bold; font-family: monospace;
+      margin-left: 18px; padding: 4px 12px; 
+      border-left: 2px solid #333;
+      max-width: 500px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    #cmdOutput.ok { color: #00ff95; }
+    #cmdOutput.err { color: #ff4d4d; }
+    .empty-state { flex: 1; display: flex; align-items: center; justify-content: center; color: #444; font-size: 18px; }
+    
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: #222; }
+    ::-webkit-scrollbar-track { background: #000; }
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="title">Hierarchy Tree</div>
+  <div class="actions">
+    <label class="upload-btn" for="fileInput">Upload Files</label>
+    <input type="file" id="fileInput" accept=".html,.htm,.c,.cpp,.java,.h" multiple style="display:none;" />
+    <div class="stats" id="statsBar">0 trees · 0 comments</div>
+    <div id="cmdOutput"></div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="content">
+    <div class="empty-state" id="emptyState"></div>
+    <div class="table-wrap" id="tableWrap" style="display:none;">
+      <table>
+        <thead>
+          <tr>
+            <th>ROW_NO</th>
+            <th>COMMENT_NO</th>
+            <th>USERNAME</th>
+            <th>COMMENTS</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="bottom">
+  <div class="cmd-wrap">
+    <span class="prompt">&gt;</span>
+    <input type="text" id="cmdInput" class="cmd" placeholder="Enter command" autocomplete="off" />
+  </div>
+</div>
+
+<script src="hierarchy_tree.js"></script>
+</body>
+</html>
