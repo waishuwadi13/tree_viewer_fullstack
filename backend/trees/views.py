@@ -1,8 +1,25 @@
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from .models import Tree
 from .parsers import parse_reddit_html
 from .services import save_tree
+
+
+@api_view(['GET'])
+def list_trees(request):
+    trees = Tree.objects.order_by('-uploaded_at')
+    data = [
+        {
+            'id': t.id,
+            'title': t.title,
+            'filename': t.filename,
+            'source_type': t.source_type,
+            'uploaded_at': t.uploaded_at,
+        }
+        for t in trees
+    ]
+    return Response(data)
 
 
 @api_view(['POST'])
