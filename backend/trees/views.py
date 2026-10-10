@@ -1,9 +1,10 @@
+from django.shortcuts import get_object_or_404
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from .models import Tree
 from .parsers import parse_reddit_html
-from .services import save_tree
+from .services import save_tree, build_tree
 
 
 @api_view(['GET'])
@@ -20,6 +21,12 @@ def list_trees(request):
         for t in trees
     ]
     return Response(data)
+
+
+@api_view(['GET'])
+def get_tree(request, tree_id):
+    tree = get_object_or_404(Tree, id=tree_id)
+    return Response(build_tree(tree))
 
 
 @api_view(['POST'])
