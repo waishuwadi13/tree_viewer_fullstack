@@ -17,6 +17,7 @@ function App() {
   const [activeTree, setActiveTree] = useState(null)
   const [message, setMessage] = useState('')
   const [collapsed, setCollapsed] = useState([])
+  const [highlighted, setHighlighted] = useState(null)
   const [cmd, setCmd] = useState('')
   const [output, setOutput] = useState('')
 
@@ -30,12 +31,19 @@ function App() {
     loadTrees()
   }, [])
 
+  useEffect(() => {
+    if (!highlighted) return
+    const el = document.getElementById(`row-${highlighted}`)
+    if (el) el.scrollIntoView({ block: 'center' })
+  }, [highlighted, collapsed])
+
   function openTree(id) {
     fetch(`${API}/trees/${id}/`)
       .then(res => res.json())
       .then(data => {
         setActiveTree(data)
         setCollapsed([])
+        setHighlighted(null)
         setOutput('')
       })
   }
@@ -82,12 +90,39 @@ function App() {
         return
       }
       if (!collapsed.includes(arg)) setCollapsed([...collapsed, arg])
+      setHighlighted(arg)
       setOutput(`${arg} collapsed`)
     } else if (name === 'expand') {
       setCollapsed(collapsed.filter(c => c !== arg))
+      setHighlighted(arg)
       setOutput(`${arg} expanded`)
+    } else if (name === 'showlevel') {
+      const level = parseInt(arg, 10)
+      if (!level || level < 1) {
+        setOutput('Error: showlevel 1, 2, 3... asa vapar')
+        return
+      }
+      const toCollapse = rows
+        .filter(n => n.depth === level && n.children.length > 0)
+        .map(n => n.address)
+      setCollapsed(toCollapse)
+      setOutput(`Level ${level} view`)
+    } else if (name === 'goto') {
+      let target = arg
+      if (arg && arg.toLowerCase() === 'row') {
+        const node = visibleRows[parseInt(parts[2], 10) - 1]
+        target = node ? node.address : null
+      }
+      if (!target || !rows.some(n => n.address === target)) {
+        setOutput('Error: target sapadla nahi')
+        return
+      }
+      setCollapsed(collapsed.filter(c => !target.startsWith(c + '.')))
+      setHighlighted(target)
+      setOutput(`Moved to ${target}`)
     } else if (name === 'clear') {
       setCollapsed([])
+      setHighlighted(null)
       setOutput('View reset')
     } else {
       setOutput(`Error: unknown command "${name}"`)
@@ -131,8 +166,8 @@ function App() {
               value={cmd}
               onChange={e => setCmd(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="collapse 1.1 | expand 1.1 | clear"
-              style={{ width: 300 }}
+              placeholder="collapse 1.1 | expand 1.1 | showlevel 2 | goto 1.2 | clear"
+              style={{ width: 420 }}
             />
             <span style={{ marginLeft: 12 }}>{output}</span>
           </div>
@@ -148,7 +183,14 @@ function App() {
             </thead>
             <tbody>
               {visibleRows.map((node, i) => (
-                <tr key={node.address}>
+                <tr
+                  key={node.address}
+                  id={`row-${node.address}`}
+                  style={{
+                    backgroundColor:
+                      node.address === highlighted ? '#2a0f00' : 'transparent',
+                  }}
+                >
                   <td>{i + 1}</td>
                   <td>{node.address}</td>
                   <td>{node.author}</td>
