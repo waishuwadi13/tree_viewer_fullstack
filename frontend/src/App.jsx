@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 
 const API = 'http://127.0.0.1:8000/api'
+const COLUMNS = ['ROW_NO', 'COMMENT_NO', 'USERNAME', 'COMMENTS']
 
 function flatten(node, rows = []) {
   rows.push(node)
@@ -29,6 +30,8 @@ function App() {
   const [collapsed, setCollapsed] = useState([])
   const [trimmed, setTrimmed] = useState([])
   const [readAddr, setReadAddr] = useState(null)
+  const [hiddenColumns, setHiddenColumns] = useState([])
+  const [hiddenRows, setHiddenRows] = useState([])
   const [highlighted, setHighlighted] = useState(null)
   const [cmd, setCmd] = useState('')
   const [output, setOutput] = useState('')
@@ -57,6 +60,8 @@ function App() {
         setCollapsed([])
         setTrimmed([])
         setReadAddr(null)
+        setHiddenColumns([])
+        setHiddenRows([])
         setHighlighted(null)
         setOutput('')
       })
@@ -86,7 +91,9 @@ function App() {
   }
 
   const rows = activeTree ? flatten(activeTree.root) : []
-  const visibleRows = rows.filter(node => !isHidden(node.address, collapsed))
+  const visibleRows = rows.filter(
+    node => !isHidden(node.address, collapsed) && !hiddenRows.includes(node.address)
+  )
 
   useEffect(() => {
     function onKey(e) {
@@ -199,6 +206,49 @@ function App() {
       setReadAddr(target)
       setHighlighted(target)
       setOutput(`Reading ${target}`)
+    } else if (name === 'hide') {
+      if (arg && arg.toLowerCase() === 'column') {
+        const n = parseInt(parts[2], 10)
+        if (!n || n < 1 || n > 4) {
+          setOutput('Error: hide column 1 te 4')
+          return
+        }
+        if (!hiddenColumns.includes(n)) setHiddenColumns([...hiddenColumns, n])
+        setOutput(`${COLUMNS[n - 1]} column hidden`)
+      } else if (arg && arg.toLowerCase() === 'row') {
+        const node = visibleRows[parseInt(parts[2], 10) - 1]
+        if (!node) {
+          setOutput('Error: hi row sapadli nahi')
+          return
+        }
+        setHiddenRows([...hiddenRows, node.address])
+        setOutput(`Row ${parts[2]} hidden`)
+      } else if (arg && rows.some(n => n.address === arg)) {
+        if (!hiddenRows.includes(arg)) setHiddenRows([...hiddenRows, arg])
+        setOutput(`${arg} hidden`)
+      } else {
+        setOutput('Error: hide column 1-4 | hide row 5 | hide 1.2.3')
+      }
+    } else if (name === 'show') {
+      if (!arg || arg.toLowerCase() === 'all') {
+        setHiddenColumns([])
+        setHiddenRows([])
+        setOutput('All columns and rows shown')
+      } else if (arg.toLowerCase() === 'column') {
+        const n = parseInt(parts[2], 10)
+        if (!n || n < 1 || n > 4) {
+          setOutput('Error: show column 1 te 4')
+          return
+        }
+        setHiddenColumns(hiddenColumns.filter(c => c !== n))
+        setOutput(`${COLUMNS[n - 1]} column shown`)
+      } else if (rows.some(n => n.address === arg)) {
+        setHiddenRows(hiddenRows.filter(a => a !== arg))
+        setHighlighted(arg)
+        setOutput(`${arg} shown`)
+      } else {
+        setOutput('Error: show all | show column 1-4 | show 1.2.3')
+      }
     } else if (name === 'clear') {
       setCollapsed([])
       setTrimmed([])
@@ -250,8 +300,8 @@ function App() {
               value={cmd}
               onChange={e => setCmd(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="collapse | expand | showlevel | goto | trim | read | clear"
-              style={{ width: 480 }}
+              placeholder="collapse | expand | showlevel | goto | trim | read | hide | show | clear"
+              style={{ width: 560 }}
             />
             <span style={{ marginLeft: 12 }}>{output}</span>
           </div>
@@ -259,10 +309,9 @@ function App() {
           <table border="1">
             <thead>
               <tr>
-                <th>ROW_NO</th>
-                <th>COMMENT_NO</th>
-                <th>USERNAME</th>
-                <th>COMMENTS</th>
+                {COLUMNS.map((label, i) =>
+                  hiddenColumns.includes(i + 1) ? null : <th key={label}>{label}</th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -275,13 +324,15 @@ function App() {
                       node.address === highlighted ? '#2a0f00' : 'transparent',
                   }}
                 >
-                  <td>{i + 1}</td>
-                  <td>{node.address}</td>
-                  <td>{node.author}</td>
-                  <td style={{ paddingLeft: node.depth * 20 }}>
-                    {displayText(node)}
-                    {collapsed.includes(node.address) && ' ++'}
-                  </td>
+                  {!hiddenColumns.includes(1) && <td>{i + 1}</td>}
+                  {!hiddenColumns.includes(2) && <td>{node.address}</td>}
+                  {!hiddenColumns.includes(3) && <td>{node.author}</td>}
+                  {!hiddenColumns.includes(4) && (
+                    <td style={{ paddingLeft: node.depth * 20 }}>
+                      {displayText(node)}
+                      {collapsed.includes(node.address) && ' ++'}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
