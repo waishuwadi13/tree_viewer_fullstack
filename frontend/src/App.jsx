@@ -12,6 +12,11 @@ const HELP = [
   ['trim 1.2 | trim row 3 | trim off', 'cut text to 5 words'],
   ['read 1.2 | read row 3', 'show full text of a row'],
   ['buffer N', 'switch to tree number N'],
+  ['copy y1.2', 'copy one node by address'],
+  ['copy row 5', 'copy one visible row by number'],
+  ['copy yt25 | copy yt1.3', 'copy from that row/address till end'],
+  ['copy y25 y62 | copy y1.1 y1.5', 'copy a range of rows / addresses'],
+  ['paste | paste p35 | paste p2.5', 'paste after highlighted / row / address'],
   ['hide column 1-4 | hide row 5 | hide 1.2.3', 'hide column / row'],
   ['show column 1-4 | show 1.2.3 | show all', 'show them again'],
   ['clear', 'reset view'],
@@ -21,6 +26,10 @@ const HELP = [
   ['h / l', 'scroll left / right'],
   ['ArrowUp / ArrowDown', 'previous commands'],
 ]
+
+function isInt(s) {
+  return /^\d+$/.test(s)
+}
 
 function flatten(node, rows = []) {
   rows.push(node)
@@ -42,6 +51,81 @@ function truncateWords(text, limit) {
   return words.slice(0, limit).join(' ') + ' ...'
 }
 
+function findNode(root, address) {
+  const parts = address.split('.').map(Number)
+  if (parts.some(isNaN) || parts[0] !== 1) return null
+  let node = root
+  let parent = null
+  for (let i = 1; i < parts.length; i++) {
+    parent = node
+    node = node.children[parts[i] - 1]
+    if (!node) return null
+  }
+  return { node, parent }
+}
+
+function assignAddresses(node, address, depth) {
+  node.address = address
+  node.depth = depth
+  node.children.forEach((child, i) => {
+    assignAddresses(child, `${address}.${i + 1}`, depth + 1)
+  })
+}
+
+function buildPasteNodes(lines) {
+  const topNodes = []
+  let currentParent = null
+  let braceDepth = 0
+  const make = text => ({ author: 'pasted', text, permalink: null, children: [] })
+
+  lines.forEach(line => {
+    const trimmedLine = line.trim()
+    if (!trimmedLine) return
+
+    const tokens = []
+    let buf = ''
+    for (const ch of trimmedLine) {
+      if (ch === '{' || ch === '}') {
+        if (buf.trim()) tokens.push({ type: 'text', val: buf.trim() })
+        tokens.push({ type: ch === '{' ? 'open' : 'close' })
+        buf = ''
+      } else {
+        buf += ch
+      }
+    }
+    if (buf.trim()) tokens.push({ type: 'text', val: buf.trim() })
+
+    tokens.forEach(tok => {
+      if (tok.type === 'text') {
+        if (braceDepth > 0 && currentParent) {
+          currentParent.children.push(make(tok.val))
+        } else {
+          const node = make(tok.val)
+          topNodes.push(node)
+          currentParent = node
+        }
+      } else if (tok.type === 'open') {
+        if (braceDepth === 0 && !currentParent) {
+          const node = make('{')
+          topNodes.push(node)
+          currentParent = node
+        } else if (currentParent) {
+          currentParent.children.push(make('{'))
+        }
+        braceDepth++
+      } else {
+        braceDepth = Math.max(0, braceDepth - 1)
+        const node = make('}')
+        if (currentParent) currentParent.children.push(node)
+        else topNodes.push(node)
+        if (braceDepth === 0) currentParent = null
+      }
+    })
+  })
+
+  return topNodes
+}
+
 function App() {
   const [trees, setTrees] = useState([])
   const [activeTree, setActiveTree] = useState(null)
@@ -53,6 +137,7 @@ function App() {
   const [hiddenRows, setHiddenRows] = useState([])
   const [highlighted, setHighlighted] = useState(null)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [clipboard, setClipboard] = useState('')
   const [cmdHistory, setCmdHistory] = useState([])
   const [histIdx, setHistIdx] = useState(-1)
   const [cmd, setCmd] = useState('')
@@ -179,6 +264,124 @@ function App() {
     return parts[1] || highlighted
   }
 
+  function copyCommand(parts) {
+    const a1 = parts[1] || ''
+    const a2 = parts[2] || ''
+    const strip = s => (s.startsWith('y') ? s.slice(1) : s)
+    let lines = null
+    let first = null
+
+    if (a1.toLowerCase() === 'row' && a2) {
+      const n = visibleRows[parseInt(a2, 10) - 1]
+      if (n) {
+        lines = [n.text]
+        first = n.address
+      }
+    } else if (a1.startsWith('yt') && isInt(a1.slice(2))) {
+      const i = parseInt(a1.slice(2), 10) - 1
+      if (visibleRows[i]) {
+        lines = visibleRows.slice(i).map(n => n.text)
+        first = visibleRows[i].address
+      }
+    } else if (a1.startsWith('yt')) {
+      const i = visibleRows.findIndex(n => n.address === a1.slice(2))
+      if (i >= 0) {
+        lines = visibleRows.slice(i).map(n => n.text)
+        first = visibleRows[i].address
+      }
+    } else if (a2 && isInt(strip(a1)) && isInt(strip(a2))) {
+      const r1 = parseInt(strip(a1), 10)
+      const r2 = parseInt(strip(a2), 10)
+      const from = Math.min(r1, r2) - 1
+      const to = Math.max(r1, r2) - 1
+      const part = visibleRows.slice(from, to + 1)
+      if (part.length) {
+        lines = part.map(n => n.text)
+        first = part[0].address
+      }
+    } else if (a2) {
+      const i1 = visibleRows.findIndex(n => n.address === strip(a1))
+      const i2 = visibleRows.findIndex(n => n.address === strip(a2))
+      if (i1 >= 0 && i2 >= 0) {
+        const part = visibleRows.slice(Math.min(i1, i2), Math.max(i1, i2) + 1)
+        lines = part.map(n => n.text)
+        first = part[0].address
+      }
+    } else if (a1.startsWith('y')) {
+      const n = rows.find(r => r.address === a1.slice(1))
+      if (n) {
+        lines = [n.text]
+        first = n.address
+      }
+    }
+
+    if (!lines || lines.length === 0) {
+      setOutput('Error: copy y1.2 | copy row 5 | copy yt5 | copy y5 y9 | copy y1.1 y1.4')
+      return
+    }
+
+    const text = lines.join('\n')
+    setClipboard(text)
+    if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {})
+    setHighlighted(first)
+    setOutput(`Copied ${lines.length} line(s).`)
+  }
+
+  function pasteCommand(parts) {
+    const arg = parts[1] || ''
+    let target
+    if (!arg) {
+      target = highlighted
+    } else {
+      const s = arg.toLowerCase().startsWith('p') ? arg.slice(1) : arg
+      if (isInt(s)) {
+        const node = visibleRows[parseInt(s, 10) - 1]
+        target = node ? node.address : null
+      } else {
+        target = s
+      }
+    }
+
+    if (!target) {
+      setOutput('Error: target sapadla nahi')
+      return
+    }
+    if (!clipboard) {
+      setOutput('Error: Nothing copied yet. Use copy first.')
+      return
+    }
+
+    const lines = clipboard.split('\n').filter(l => l.length > 0)
+    const copy = JSON.parse(JSON.stringify(activeTree))
+    const found = findNode(copy.root, target)
+    if (!found) {
+      setOutput(`Error: "${target}" sapadla nahi`)
+      return
+    }
+
+    const newNodes = buildPasteNodes(lines)
+    if (newNodes.length === 0) {
+      setOutput('Error: Nothing to paste.')
+      return
+    }
+
+    if (found.parent) {
+      const idx = found.parent.children.indexOf(found.node)
+      found.parent.children.splice(idx + 1, 0, ...newNodes)
+    } else {
+      found.node.children.unshift(...newNodes)
+    }
+
+    assignAddresses(copy.root, '1', 0)
+    setActiveTree(copy)
+    setCollapsed([])
+    setTrimmed([])
+    setHiddenRows([])
+    setReadAddr(null)
+    setHighlighted(newNodes[0].address)
+    setOutput(`Pasted ${lines.length} line(s) after ${target}.`)
+  }
+
   function runCommand(text) {
     const parts = text.trim().split(/\s+/)
     const name = parts[0].toLowerCase()
@@ -277,6 +480,10 @@ function App() {
       setReadAddr(target)
       setHighlighted(target)
       setOutput(`Reading ${target}`)
+    } else if (name === 'copy') {
+      copyCommand(parts)
+    } else if (name === 'paste') {
+      pasteCommand(parts)
     } else if (name === 'hide') {
       if (arg && arg.toLowerCase() === 'column') {
         const n = parseInt(parts[2], 10)
