@@ -12,11 +12,23 @@ function isHidden(address, collapsed) {
   return collapsed.some(c => address.startsWith(c + '.'))
 }
 
+function firstWords(text, limit) {
+  return text.trim().split(/\s+/).filter(Boolean).slice(0, limit).join(' ')
+}
+
+function truncateWords(text, limit) {
+  const words = text.trim().split(/\s+/).filter(Boolean)
+  if (words.length <= limit) return text
+  return words.slice(0, limit).join(' ') + ' ...'
+}
+
 function App() {
   const [trees, setTrees] = useState([])
   const [activeTree, setActiveTree] = useState(null)
   const [message, setMessage] = useState('')
   const [collapsed, setCollapsed] = useState([])
+  const [trimmed, setTrimmed] = useState([])
+  const [readAddr, setReadAddr] = useState(null)
   const [highlighted, setHighlighted] = useState(null)
   const [cmd, setCmd] = useState('')
   const [output, setOutput] = useState('')
@@ -34,7 +46,7 @@ function App() {
   useEffect(() => {
     if (!highlighted) return
     const el = document.getElementById(`row-${highlighted}`)
-    if (el) el.scrollIntoView({ block: 'center' })
+    if (el) el.scrollIntoView({ block: 'nearest' })
   }, [highlighted, collapsed])
 
   function openTree(id) {
@@ -43,6 +55,8 @@ function App() {
       .then(data => {
         setActiveTree(data)
         setCollapsed([])
+        setTrimmed([])
+        setReadAddr(null)
         setHighlighted(null)
         setOutput('')
       })
@@ -74,6 +88,45 @@ function App() {
   const rows = activeTree ? flatten(activeTree.root) : []
   const visibleRows = rows.filter(node => !isHidden(node.address, collapsed))
 
+  useEffect(() => {
+    function onKey(e) {
+      const tag = document.activeElement.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (e.key !== 'j' && e.key !== 'k') return
+      if (visibleRows.length === 0) return
+      e.preventDefault()
+
+      const idx = visibleRows.findIndex(n => n.address === highlighted)
+      let next
+      if (idx < 0) {
+        next = 0
+      } else if (e.key === 'j') {
+        next = Math.min(idx + 1, visibleRows.length - 1)
+      } else {
+        next = Math.max(idx - 1, 0)
+      }
+      setHighlighted(visibleRows[next].address)
+    }
+
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [visibleRows, highlighted])
+
+  function displayText(node) {
+    if (node.depth === 0 || node.address === readAddr) return node.text
+    if (trimmed.includes(node.address)) return truncateWords(node.text, 5)
+    if (collapsed.includes(node.address)) return firstWords(node.text, 5)
+    return node.text
+  }
+
+  function resolveTarget(parts) {
+    if (parts[1] && parts[1].toLowerCase() === 'row') {
+      const node = visibleRows[parseInt(parts[2], 10) - 1]
+      return node ? node.address : null
+    }
+    return parts[1] || highlighted
+  }
+
   function runCommand(text) {
     const parts = text.trim().split(/\s+/)
     const name = parts[0].toLowerCase()
@@ -83,6 +136,8 @@ function App() {
       setOutput('Error: aadhi ek tree ughad')
       return
     }
+
+    if (name !== 'read') setReadAddr(null)
 
     if (name === 'collapse') {
       if (!arg || !rows.some(n => n.address === arg)) {
@@ -120,8 +175,33 @@ function App() {
       setCollapsed(collapsed.filter(c => !target.startsWith(c + '.')))
       setHighlighted(target)
       setOutput(`Moved to ${target}`)
+    } else if (name === 'trim') {
+      if (arg && arg.toLowerCase() === 'off') {
+        setTrimmed([])
+        setOutput('Trim cleared')
+        return
+      }
+      const target = resolveTarget(parts)
+      if (!target || !rows.some(n => n.address === target)) {
+        setOutput('Error: trim 1.2 | trim row 3 | trim off')
+        return
+      }
+      if (!trimmed.includes(target)) setTrimmed([...trimmed, target])
+      setHighlighted(target)
+      setOutput(`Trimmed ${target} to 5 words`)
+    } else if (name === 'read') {
+      const target = resolveTarget(parts)
+      if (!target || !rows.some(n => n.address === target)) {
+        setOutput('Error: read 1.2 | read row 3')
+        return
+      }
+      setCollapsed(collapsed.filter(c => !target.startsWith(c + '.')))
+      setReadAddr(target)
+      setHighlighted(target)
+      setOutput(`Reading ${target}`)
     } else if (name === 'clear') {
       setCollapsed([])
+      setTrimmed([])
       setHighlighted(null)
       setOutput('View reset')
     } else {
@@ -130,6 +210,10 @@ function App() {
   }
 
   function handleKeyDown(e) {
+    if (e.key === 'Escape') {
+      e.target.blur()
+      return
+    }
     if (e.key === 'Enter' && cmd.trim()) {
       runCommand(cmd)
       setCmd('')
@@ -166,8 +250,8 @@ function App() {
               value={cmd}
               onChange={e => setCmd(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="collapse 1.1 | expand 1.1 | showlevel 2 | goto 1.2 | clear"
-              style={{ width: 420 }}
+              placeholder="collapse | expand | showlevel | goto | trim | read | clear"
+              style={{ width: 480 }}
             />
             <span style={{ marginLeft: 12 }}>{output}</span>
           </div>
@@ -195,7 +279,7 @@ function App() {
                   <td>{node.address}</td>
                   <td>{node.author}</td>
                   <td style={{ paddingLeft: node.depth * 20 }}>
-                    {node.text}
+                    {displayText(node)}
                     {collapsed.includes(node.address) && ' ++'}
                   </td>
                 </tr>
