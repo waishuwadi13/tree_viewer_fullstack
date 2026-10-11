@@ -1,7 +1,26 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 const API = 'http://127.0.0.1:8000/api'
 const COLUMNS = ['ROW_NO', 'COMMENT_NO', 'USERNAME', 'COMMENTS']
+
+const HELP = [
+  ['goto 1.2.3', 'goto specific comment'],
+  ['goto row 10', 'goto row number'],
+  ['expand 1.3', 'open replies of an address'],
+  ['collapse 1.2', 'close replies of an address'],
+  ['showlevel N', 'show N levels deep, collapse the rest'],
+  ['trim 1.2 | trim row 3 | trim off', 'cut text to 5 words'],
+  ['read 1.2 | read row 3', 'show full text of a row'],
+  ['buffer N', 'switch to tree number N'],
+  ['hide column 1-4 | hide row 5 | hide 1.2.3', 'hide column / row'],
+  ['show column 1-4 | show 1.2.3 | show all', 'show them again'],
+  ['clear', 'reset view'],
+  ['help', 'show this list'],
+  ['back', 'return from help'],
+  ['j / k', 'move down / up'],
+  ['h / l', 'scroll left / right'],
+  ['ArrowUp / ArrowDown', 'previous commands'],
+]
 
 function flatten(node, rows = []) {
   rows.push(node)
@@ -33,8 +52,12 @@ function App() {
   const [hiddenColumns, setHiddenColumns] = useState([])
   const [hiddenRows, setHiddenRows] = useState([])
   const [highlighted, setHighlighted] = useState(null)
+  const [helpOpen, setHelpOpen] = useState(false)
+  const [cmdHistory, setCmdHistory] = useState([])
+  const [histIdx, setHistIdx] = useState(-1)
   const [cmd, setCmd] = useState('')
   const [output, setOutput] = useState('')
+  const cmdRef = useRef(null)
 
   function loadTrees() {
     fetch(`${API}/trees/`)
@@ -52,7 +75,7 @@ function App() {
     if (el) el.scrollIntoView({ block: 'nearest' })
   }, [highlighted, collapsed])
 
-  function openTree(id) {
+  function openTree(id, msg = '') {
     fetch(`${API}/trees/${id}/`)
       .then(res => res.json())
       .then(data => {
@@ -63,7 +86,8 @@ function App() {
         setHiddenColumns([])
         setHiddenRows([])
         setHighlighted(null)
-        setOutput('')
+        setHelpOpen(false)
+        setOutput(msg)
       })
   }
 
@@ -99,6 +123,27 @@ function App() {
     function onKey(e) {
       const tag = document.activeElement.tagName
       if (tag === 'INPUT' || tag === 'TEXTAREA') return
+
+      const isMoveKey = 'jkhl'.includes(e.key) && e.key.length === 1
+
+      if (
+        cmdRef.current &&
+        !isMoveKey &&
+        !e.ctrlKey && !e.metaKey && !e.altKey &&
+        e.key.length === 1
+      ) {
+        e.preventDefault()
+        cmdRef.current.focus()
+        setCmd(c => c + e.key)
+        return
+      }
+
+      if (e.key === 'h' || e.key === 'l') {
+        const wrap = document.getElementById('tableWrap')
+        if (wrap) wrap.scrollLeft += e.key === 'l' ? 80 : -80
+        return
+      }
+
       if (e.key !== 'j' && e.key !== 'k') return
       if (visibleRows.length === 0) return
       e.preventDefault()
@@ -138,6 +183,32 @@ function App() {
     const parts = text.trim().split(/\s+/)
     const name = parts[0].toLowerCase()
     const arg = parts[1]
+
+    if (name === 'help') {
+      setHelpOpen(true)
+      setOutput('Type "back" to return.')
+      return
+    }
+
+    if (name === 'back') {
+      if (helpOpen) {
+        setHelpOpen(false)
+        setOutput('Back to tree.')
+      } else {
+        setOutput('Error: Nothing to go back to.')
+      }
+      return
+    }
+
+    if (name === 'buffer') {
+      const n = parseInt(arg, 10) - 1
+      if (n >= 0 && n < trees.length) {
+        openTree(trees[n].id, `Switched to buffer ${arg}`)
+      } else {
+        setOutput('Error: number does not exist.')
+      }
+      return
+    }
 
     if (!activeTree) {
       setOutput('Error: aadhi ek tree ughad')
@@ -264,7 +335,33 @@ function App() {
       e.target.blur()
       return
     }
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      if (histIdx < cmdHistory.length - 1) {
+        const i = histIdx + 1
+        setHistIdx(i)
+        setCmd(cmdHistory[i])
+      }
+      return
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      if (histIdx > 0) {
+        const i = histIdx - 1
+        setHistIdx(i)
+        setCmd(cmdHistory[i])
+      } else {
+        setHistIdx(-1)
+        setCmd('')
+      }
+      return
+    }
+
     if (e.key === 'Enter' && cmd.trim()) {
+      setCmdHistory([cmd.trim(), ...cmdHistory])
+      setHistIdx(-1)
       runCommand(cmd)
       setCmd('')
     }
@@ -279,13 +376,13 @@ function App() {
 
       <h3>Saved trees: {trees.length}</h3>
       <ul>
-        {trees.map(tree => (
+        {trees.map((tree, i) => (
           <li
             key={tree.id}
             onClick={() => openTree(tree.id)}
             style={{ cursor: 'pointer' }}
           >
-            {tree.id}. {tree.title} ({tree.source_type})
+            {i + 1}. {tree.title} ({tree.source_type})
           </li>
         ))}
       </ul>
@@ -297,46 +394,62 @@ function App() {
           <div>
             {'> '}
             <input
+              ref={cmdRef}
               value={cmd}
               onChange={e => setCmd(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="collapse | expand | showlevel | goto | trim | read | hide | show | clear"
+              placeholder="type a command, or help"
               style={{ width: 560 }}
             />
             <span style={{ marginLeft: 12 }}>{output}</span>
           </div>
 
-          <table border="1">
-            <thead>
-              <tr>
-                {COLUMNS.map((label, i) =>
-                  hiddenColumns.includes(i + 1) ? null : <th key={label}>{label}</th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {visibleRows.map((node, i) => (
-                <tr
-                  key={node.address}
-                  id={`row-${node.address}`}
-                  style={{
-                    backgroundColor:
-                      node.address === highlighted ? '#2a0f00' : 'transparent',
-                  }}
-                >
-                  {!hiddenColumns.includes(1) && <td>{i + 1}</td>}
-                  {!hiddenColumns.includes(2) && <td>{node.address}</td>}
-                  {!hiddenColumns.includes(3) && <td>{node.author}</td>}
-                  {!hiddenColumns.includes(4) && (
-                    <td style={{ paddingLeft: node.depth * 20 }}>
-                      {displayText(node)}
-                      {collapsed.includes(node.address) && ' ++'}
-                    </td>
-                  )}
-                </tr>
+          {helpOpen ? (
+            <div style={{ padding: 16, lineHeight: 2 }}>
+              <div style={{ color: '#ff79c6', letterSpacing: 2 }}>-- COMMANDS --</div>
+              {HELP.map(([syntax, what]) => (
+                <div key={syntax}>
+                  <span style={{ color: '#f1fa8c' }}>{syntax}</span>
+                  {'  ->  '}
+                  {what}
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+          ) : (
+            <div id="tableWrap" style={{ overflowX: 'auto' }}>
+              <table border="1">
+                <thead>
+                  <tr>
+                    {COLUMNS.map((label, i) =>
+                      hiddenColumns.includes(i + 1) ? null : <th key={label}>{label}</th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleRows.map((node, i) => (
+                    <tr
+                      key={node.address}
+                      id={`row-${node.address}`}
+                      style={{
+                        backgroundColor:
+                          node.address === highlighted ? '#2a0f00' : 'transparent',
+                      }}
+                    >
+                      {!hiddenColumns.includes(1) && <td>{i + 1}</td>}
+                      {!hiddenColumns.includes(2) && <td>{node.address}</td>}
+                      {!hiddenColumns.includes(3) && <td>{node.author}</td>}
+                      {!hiddenColumns.includes(4) && (
+                        <td style={{ paddingLeft: node.depth * 20 }}>
+                          {displayText(node)}
+                          {collapsed.includes(node.address) && ' ++'}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>
